@@ -1,7 +1,7 @@
 <?php
 /*
  Plugin Name: DB ACF Extension
- Version: 1.0.0
+ Version: 1.0.1
  Description: Aangepaste ACF interface voor Digitale Bazen
  Author: Digitale Bazen
  Text Domain: db-acf-ui
