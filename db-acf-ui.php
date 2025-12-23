@@ -3,8 +3,11 @@
  Plugin Name: DB ACF Extension
  Version: 1.0.0
  Description: Aangepaste ACF interface voor Digitale Bazen
- Author: Yanick
+ Author: Digitale Bazen
  Text Domain: db-acf-ui
+
+* GitHub Plugin URI: https://github.com/yanickvdkorst/DB-ACF-Extension.git
+* GitHub Branch: main
 */
 
 // don't load directly
