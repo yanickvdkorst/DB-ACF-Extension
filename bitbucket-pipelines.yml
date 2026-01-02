@@ -2,20 +2,19 @@
 image: atlassian/default-image:3
 
 pipelines:
-  # Deze pipeline draait bij elke tag; pas het patroon naar wens aan.
   tags:
-    "v*":                # bijvoorbeeld v1.2.6
+    "v*":                       # draait voor bv. v1.2.8
       - step:
-          name: "Build WP-ready ZIP (vaste topmap)"
+          name: "Build WP-ready ZIP"
           script:
             - git fetch --tags
+            - echo "BITBUCKET_TAG=${BITBUCKET_TAG}"
             # Bouw ZIP met vaste topmap 'db-acf-extension/'
-            - git archive --format=zip --output db-acf-extension-${BITBUCKET_TAG}.zip --prefix=db-acf-extension/ ${BITBUCKET_TAG}
-            - ls -lh db-acf-extension-${BITBUCKET_TAG}.zip
+            - git archive --format=zip --output "db-acf-extension-${BITBUCKET_TAG}.zip" --prefix=db-acf-extension/ "${BITBUCKET_TAG}"
+            - ls -lh "db-acf-extension-${BITBUCKET_TAG}.zip"
           artifacts:
-            - db-acf-extension-${BITBUCKET_TAG}.zip
+            - "db-acf-extension-${BITBUCKET_TAG}.zip"
 
-      # Upload naar Bitbucket Downloads met de officiële pipe (aanrader)
       - step:
           name: "Upload ZIP naar Bitbucket Downloads"
           script:
@@ -24,7 +23,3 @@ pipelines:
                 ATLASSIAN_ACCOUNT_EMAIL: $ATLASSIAN_ACCOUNT_EMAIL
                 ATLASSIAN_API_TOKEN: $ATLASSIAN_API_TOKEN
                 FILENAME: "db-acf-extension-${BITBUCKET_TAG}.zip"
-                # Standaard uploadt deze pipe naar de huidige repo.
-                # Wil je naar een andere repo, voeg ACCOUNT/REPOSITORY toe:
-                # ACCOUNT: "your-workspace"
-                # REPOSITORY: "your-repo"
