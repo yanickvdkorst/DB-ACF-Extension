@@ -5,6 +5,7 @@ Description: Aangepaste ACF interface voor Digitale Bazen
 Version: 1.2.2
 Author: Digitale Bazen
 Text Domain: db-acf-ui
+Update URI: bitbucket.org/digitale-bazen/db-acf-extension
 
 Icon: assets/images/icon-128x128.png
 Banner: assets/images/banner-772x250.png
@@ -125,3 +126,69 @@ add_filter('pre_set_site_transient_update_plugins', function($transient) {
 
     return $transient;
 });
+
+
+
+/**
+ * Forceer vaste pluginmapnaam na uitpakken van Bitbucket ZIP (met backup/restore).
+ */
+add_filter('upgrader_source_selection', function ($source, $remote_source, $upgrader, $hook_extra) {
+
+    // Alleen ingrijpen bij plugin install/update
+    $is_plugin_op = isset($hook_extra['type']) && $hook_extra['type'] === 'plugin';
+    if (!$is_plugin_op) {
+        return $source;
+    }
+
+    $desired_folder_name = 'db-acf-extension';
+
+    global $wp_filesystem;
+
+    if (!$wp_filesystem || !is_object($upgrader) || !isset($upgrader->skin)) {
+        return $source; // geen veilige context
+    }
+
+    $plugins_dir  = trailingslashit($upgrader->skin->plugins_dir);
+    $desired_path = trailingslashit($plugins_dir . $desired_folder_name);
+
+    // Als bron al de gewenste naam heeft -> niets doen
+    if (basename($source) === $desired_folder_name) {
+        return $source;
+    }
+
+    // ---- Backup naam (timestamp) ----
+    // Wil je een vaste suffix? Vervang $backup_suffix door bijvoorbeeld 'IT-gids-studenten-website'
+    $backup_suffix = gmdate('Ymd-His');
+    $backup_path   = untrailingslashit($desired_path) . '-backup-' . $backup_suffix . '/';
+
+    // Bestaat de doelmap? -> eerst veilig wegzetten als backup (rename)
+    if ($wp_filesystem->is_dir($desired_path)) {
+        // Maak desnoods de parent dir klaar (normaal al aanwezig)
+        // Rename i.p.v. delete (veiliger)
+        if (!$wp_filesystem->move($desired_path, $backup_path, true)) {
+            // Backup rename faalde -> laat origineel staan en niet ingrijpen
+            return $source;
+        }
+    }
+
+    // Probeer de uitgepakte bronmap te verplaatsen/hernoemen naar de vaste naam
+    $moved = $wp_filesystem->move($source, $desired_path, true);
+
+    if ($moved) {
+        // Move gelukt -> backup opruimen (niet verplicht, maar netjes)
+        if ($wp_filesystem->is_dir($backup_path)) {
+            $wp_filesystem->delete($backup_path, true);
+        }
+        return $desired_path;
+    }
+
+    // Move faalde -> herstel backup (rollback)
+    if ($wp_filesystem->is_dir($backup_path)) {
+        $wp_filesystem->move($backup_path, $desired_path, true);
+    }
+
+    // Fallback: ga verder met originele bron
+    return $source;
+
+}, 20, 4);
+
