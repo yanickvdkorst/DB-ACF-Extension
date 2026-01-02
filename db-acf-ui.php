@@ -2,7 +2,7 @@
 /*
 Plugin Name: DB ACF Extension
 Description: Aangepaste ACF interface voor Digitale Bazen
-Version: 1.2.4
+Version: 1.2.5
 Author: Digitale Bazen
 Text Domain: db-acf-ui
 Update URI: bitbucket.org/digitale-bazen/db-acf-extension
@@ -21,7 +21,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Constants
  * ---------------------------
  */
-define( 'DB_ACF_UI_VERSION', '1.2.4' );
+define( 'DB_ACF_UI_VERSION', '1.2.5' );
 define( 'DB_ACF_UI_MIN_PHP_VERSION', '8.0' );
 
 define( 'DB_ACF_UI_FILE', __FILE__ );
@@ -130,8 +130,9 @@ add_filter('pre_set_site_transient_update_plugins', function($transient) {
 
 
 
+
 /**
- * Forceer vaste pluginmapnaam na uitpakken van Bitbucket ZIP (rename binnen $remote_source).
+ * Forceer vaste pluginmapnaam bij updates én migreer 'active_plugins' naar het nieuwe pad.
  */
 add_filter('upgrader_source_selection', function ($source, $remote_source, $upgrader, $hook_extra) {
 
@@ -140,53 +141,91 @@ add_filter('upgrader_source_selection', function ($source, $remote_source, $upgr
         return $source;
     }
 
-    // Optioneel: grijp alleen in voor deze specifieke plugin/update-call
-    // - bij bulk updates staat 'plugins' (array) in $hook_extra
-    // - bij single update staat 'plugin' (string) in $hook_extra
-    $target_basename = plugin_basename(DB_ACF_UI_FILE); // bijv. 'db-acf-extension/db-acf-ui.php'
-    $targets = [];
-    if (!empty($hook_extra['plugins']) && is_array($hook_extra['plugins'])) {
-        $targets = $hook_extra['plugins'];
-    } elseif (!empty($hook_extra['plugin'])) {
-        $targets = [$hook_extra['plugin']];
-    }
-    if ($targets && !in_array($target_basename, $targets, true)) {
-        // Niet onze plugin → niet ingrijpen
-        return $source;
-    }
-
-    // Gewenste vaste directorynaam voor de root van je ZIP
-    $desired_folder_name = 'db-acf-extension';
-
     global $wp_filesystem;
     if (!$wp_filesystem) {
         return $source;
     }
 
-    // Als de huidige bronmap al de gewenste naam heeft → niets doen
-    if (basename($source) === $desired_folder_name) {
-        return $source;
+    // ---- Stel hier je vaste map- en bestandsnaam in ----
+    $desired_folder_name = 'db-acf-extension';
+    $main_file_name      = 'db-acf-ui.php'; // hoofd-pluginbestand
+    $desired_basename    = $desired_folder_name . '/' . $main_file_name;
+
+    // Huidige (oude) basename zoals WP hem nu kent (kan de hash-map zijn)
+    $old_basename = plugin_basename(DB_ACF_UI_FILE);
+
+    // 1) Hernoem de uitgepakte bronmap BINNEN $remote_source naar de vaste naam
+    //    zodat de upgrader de uiteindelijke map als wp-content/plugins/db-acf-extension neerzet.
+    if (basename($source) !== $desired_folder_name) {
+
+        $new_source = trailingslashit($remote_source) . $desired_folder_name . '/';
+
+        // Ruim eventueel bestaande map op die naam in de unpack-temp op
+        if ($wp_filesystem->is_dir($new_source)) {
+            $wp_filesystem->delete($new_source, true);
+        }
+
+        // Verplaats/rename de uitgepakte bronmap naar de vaste naam
+        $moved = $wp_filesystem->move($source, $new_source, true);
+
+        if ($moved) {
+            // Zeer belangrijk: vanaf hier moet de upgrader dit nieuwe pad gebruiken
+            $source = $new_source;
+        }
+        // Als move faalt, laten we $source ongemoeid (fallback)
     }
 
-    // Hernoem binnen de tijdelijke unpack-locatie
-    // Voorbeeld: $remote_source = '/.../wp-content/upgrade/db-acf-extension-<hash>/'
-    //            $source        = '/.../wp-content/upgrade/db-acf-extension-<hash>/digitale-bazen-db-acf-extension-<hash>/'
-    $new_source = trailingslashit($remote_source) . $desired_folder_name . '/';
+    // 2) Migreer de opgeslagen pluginpaden naar de nieuwe basename, zodat WP hem actief houdt.
+    //    Dit vangt het scenario waarin de plugin eerder onder een hash-map actief was.
 
-    // Bestaat er al een map met de gewenste naam in $remote_source? → verwijder om ruimte te maken
-    if ($wp_filesystem->is_dir($new_source)) {
-        $wp_filesystem->delete($new_source, true);
+    // a) Gewone (niet-multisite) activatie
+    $active = get_option('active_plugins', []);
+    $changed = false;
+
+    foreach ($active as $i => $path) {
+        // Exact oude waarde, of een pad dat op de hash-variant lijkt
+        if ($path === $old_basename
+            || preg_match('#^digitale-bazen-db-acf-extension-[^/]+/' . preg_quote($main_file_name, '#') . '$#', $path)
+            || preg_match('#^db-acf-extension-[^/]+/' . preg_quote($main_file_name, '#') . '$#', $path) // voor andere prefixen
+        ) {
+            $active[$i] = $desired_basename;
+            $changed = true;
+        }
     }
 
-    // Verplaats/rename de uitgepakte bronmap naar de vaste naam binnen $remote_source
-    $moved = $wp_filesystem->move($source, $new_source, true);
-
-    if ($moved) {
-        // Heel belangrijk: retourneer de NIEUWE bronlocatie binnen $remote_source
-        return $new_source;
+    if ($changed) {
+        update_option('active_plugins', $active);
     }
 
-    // Fallback: doe niets als verplaatsen faalt
+    // b) Multisite: netwerkactivatie
+    if (is_multisite()) {
+        $sitewide = get_site_option('active_sitewide_plugins', []);
+        $sw_changed = false;
+
+        // Exact key match
+        if (isset($sitewide[$old_basename])) {
+            $sitewide[$desired_basename] = $sitewide[$old_basename];
+            unset($sitewide[$old_basename]);
+            $sw_changed = true;
+        } else {
+            // Hash-variant zoeken
+            foreach (array_keys($sitewide) as $key) {
+                if (preg_match('#^digitale-bazen-db-acf-extension-[^/]+/' . preg_quote($main_file_name, '#') . '$#', $key)
+                    || preg_match('#^db-acf-extension-[^/]+/' . preg_quote($main_file_name, '#') . '$#', $key)
+                ) {
+                    $sitewide[$desired_basename] = $sitewide[$key];
+                    unset($sitewide[$key]);
+                    $sw_changed = true;
+                }
+            }
+        }
+
+        if ($sw_changed) {
+            update_site_option('active_sitewide_plugins', $sitewide);
+        }
+    }
+
+    // Retourneer (mogelijk) aangepast source-pad in de unpack-temp
     return $source;
 
-}, 20, 4);
+}, 99, 4);
