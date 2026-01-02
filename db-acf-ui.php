@@ -73,49 +73,88 @@ add_action( 'plugins_loaded', function () {
  * ---------------------------
  */
 
-add_filter('pre_set_site_transient_update_plugins', function ($transient) {
+// Inject update info
+add_filter( 'pre_set_site_transient_update_plugins', function ( $transient ) {
 
-    if (empty($transient->checked)) {
+    if ( empty( $transient->checked ) ) {
         return $transient;
     }
 
-    $plugin_basename = plugin_basename(DB_ACF_UI_FILE);
+    $plugin_slug = plugin_basename( DB_ACF_UI_FILE );
 
-    $repo_owner = 'yanickvdkorst';
-    $repo_name  = 'DB-ACF-Extension';
+    $response = wp_remote_get(
+        'https://api.github.com/repos/' . DB_ACF_UI_GITHUB_REPO . '/releases/latest',
+        [
+            'headers' => [ 'User-Agent' => 'WordPress' ],
+            'timeout' => 20,
+        ]
+    );
 
-    $api_url = "https://api.github.com/repos/{$repo_owner}/{$repo_name}/releases/latest";
-
-    $response = wp_remote_get($api_url, [
-        'headers' => [
-            'Accept'     => 'application/vnd.github+json',
-            'User-Agent' => 'WordPress'
-        ],
-        'timeout' => 20,
-    ]);
-
-    if (is_wp_error($response)) {
+    if ( is_wp_error( $response ) ) {
         return $transient;
     }
 
-    $release = json_decode(wp_remote_retrieve_body($response));
+    $data = json_decode( wp_remote_retrieve_body( $response ) );
 
-    if (empty($release->tag_name)) {
+    if ( empty( $data->tag_name ) ) {
         return $transient;
     }
 
-    $remote_version = ltrim($release->tag_name, 'v');
+    $remote_version = ltrim( $data->tag_name, 'v' );
 
-    if (version_compare($remote_version, DB_ACF_UI_VERSION, '>')) {
+    if ( version_compare( $remote_version, DB_ACF_UI_VERSION, '>' ) ) {
 
-        $transient->response[$plugin_basename] = (object) [
+        $transient->response[ $plugin_slug ] = (object) [
             'slug'        => DB_ACF_UI_SLUG,
-            'plugin'      => $plugin_basename,
+            'plugin'      => $plugin_slug,
             'new_version' => $remote_version,
-            'url'         => $release->html_url,
-            'package'     => $release->zipball_url,
+            'url'         => $data->html_url,
+            'package'     => sprintf(
+                'https://github.com/%s/releases/download/%s/db-acf-extension.zip',
+                DB_ACF_UI_GITHUB_REPO,
+                $data->tag_name
+            ),
         ];
     }
 
     return $transient;
-});
+} );
+
+// Plugin info popup
+add_filter( 'plugins_api', function ( $res, $action, $args ) {
+
+    if ( $action !== 'plugin_information' || $args->slug !== DB_ACF_UI_SLUG ) {
+        return $res;
+    }
+
+    $response = wp_remote_get(
+        'https://api.github.com/repos/' . DB_ACF_UI_GITHUB_REPO . '/releases/latest',
+        [
+            'headers' => [ 'User-Agent' => 'WordPress' ],
+            'timeout' => 20,
+        ]
+    );
+
+    if ( is_wp_error( $response ) ) {
+        return $res;
+    }
+
+    $data = json_decode( wp_remote_retrieve_body( $response ) );
+
+    return (object) [
+        'name'          => 'DB ACF Extension',
+        'slug'          => DB_ACF_UI_SLUG,
+        'version'       => ltrim( $data->tag_name, 'v' ),
+        'author'        => 'Digitale Bazen',
+        'homepage'      => $data->html_url,
+        'download_link' => sprintf(
+            'https://github.com/%s/releases/download/%s/db-acf-extension.zip',
+            DB_ACF_UI_GITHUB_REPO,
+            $data->tag_name
+        ),
+        'sections'      => [
+            'description' => 'Aangepaste ACF interface voor Digitale Bazen.',
+            'changelog'   => $data->body ?: 'Geen changelog opgegeven.',
+        ],
+    ];
+}, 20, 3 );
