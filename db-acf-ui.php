@@ -2,7 +2,7 @@
 /*
 Plugin Name: DB ACF Extension
 Description: Aangepaste ACF interface voor Digitale Bazen
-Version: 1.2.7
+Version: 1.2.8
 Author: Digitale Bazen
 Text Domain: db-acf-ui
 Update URI: bitbucket.org/digitale-bazen/db-acf-extension
@@ -21,7 +21,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Constants
  * ---------------------------
  */
-define( 'DB_ACF_UI_VERSION', '1.2.7' );
+define( 'DB_ACF_UI_VERSION', '1.2.8' );
 define( 'DB_ACF_UI_MIN_PHP_VERSION', '8.0' );
 
 define( 'DB_ACF_UI_FILE', __FILE__ );
@@ -126,24 +126,3 @@ add_filter('pre_set_site_transient_update_plugins', function($transient) {
 
     return $transient;
 });
-
-
-add_filter('upgrader_source_selection', function ($source, $remote_source, $upgrader, $hook_extra) {
-    if (!isset($hook_extra['type']) || $hook_extra['type'] !== 'plugin') {
-        return $source;
-    }
-
-    global $wp_filesystem;
-    $desired_folder_name = 'db-acf-extension';
-    $new_source = trailingslashit($remote_source) . $desired_folder_name . '/';
-
-    if ($wp_filesystem->is_dir($new_source)) {
-        $wp_filesystem->delete($new_source, true);
-    }
-
-    if ($wp_filesystem->move($source, $new_source, true)) {
-        return $new_source;
-    }
-
-    return $source;
-}, 99, 4);
